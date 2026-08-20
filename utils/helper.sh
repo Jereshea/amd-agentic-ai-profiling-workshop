@@ -248,15 +248,18 @@ fi
 # Hermes toolchain and MLflow integration
 # ===========================================================================
 echo "[INFO] Installing MLflow and OpenTelemetry dependencies..."
-python3 -m pip install -q mlflow==3.13.0 opentelemetry-sdk==1.42.1
+python3 -m pip install -q mlflow==3.13.0 opentelemetry-sdk==1.42.1 opentelemetry-exporter-otlp-proto-http==1.42.1
 
 echo "[INFO] Launching MLflow server on port 5004..."
-python3 -m mlflow server \
-  --host 0.0.0.0 \
-  --port 5004 \
-  --backend-store-uri sqlite:///mlflow.db \
-  --allowed-hosts "*" > mlflow_server.log 2>&1 &
 
+python3 -m mlflow server \
+    --host 0.0.0.0 \
+    --port 5004 \
+    --backend-store-uri sqlite:///mlflow.db \
+    --serve-artifacts \
+    --artifacts-destination "$ARTIFACT_ROOT" \
+    --allowed-hosts "*" > mlflow_server.log 2>&1 &
+    
 MLFLOW_PID=$!
 echo "[INFO] MLflow server started (PID $MLFLOW_PID)."
 
@@ -301,6 +304,20 @@ hermes config set terminal.cwd "$WORKSPACE_DIR"
 hermes config set tool_output.max_bytes 150000
 hermes config set tool_output.max_lines 5000
 hermes config set tool_output.max_line_length 5000
+
+# ===========================================================================
+echo "[INFO] Checking Playwright installation..."
+if ! $HOME/.hermes/hermes-agent/venv/bin/python -c "import playwright" &>/dev/null; then
+    echo "[INFO] Cleaning up any stale Playwright lock directories..."
+    rm -rf $HOME/.cache/ms-playwright/__dirlock
+    
+    echo "[INFO] Installing Playwright and browser dependencies..."
+    $HOME/.hermes/hermes-agent/venv/bin/python -m pip install -q playwright
+    cd "$WORKSPACE_DIR"
+    echo "[OK] Playwright browser installed successfully."
+else
+    echo "[OK] Playwright is already installed."
+fi
 
 # ===========================================================================
 # Hermes OpenTelemetry Plugin & Patch Setup
@@ -353,7 +370,9 @@ EOF
 hermes plugins enable hermes_otel --allow-tool-override
 
 $HOME/.hermes/hermes-agent/venv/bin/python -m ensurepip --upgrade
-$HOME/.hermes/hermes-agent/venv/bin/python -m pip install -q opentelemetry-api==1.42.1 opentelemetry-sdk==1.42.1 opentelemetry-exporter-otlp-proto-http==1.42.1 pyrsmi==1.1.0 amdsmi==7.0.2 mlflow==3.13.0 psutil requests cryptography
+$HOME/.hermes/hermes-agent/venv/bin/python -m pip install -q opentelemetry-api==1.42.1 opentelemetry-sdk==1.42.1 opentelemetry-exporter-otlp-proto-http==1.42.1
+$HOME/.hermes/hermes-agent/venv/bin/python -m pip install --no-deps -q psutil
+$HOME/.hermes/hermes-agent/venv/bin/python -m pip install mlflow==3.13.0 requests
 echo "[INFO] MLflow tracking available at http://${SYSTEM_IP}:5004/"
 
 cat << 'EOF' >> "$HOME/.hermes/.env"
